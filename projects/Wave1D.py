@@ -36,56 +36,66 @@ class Wave1D:
     def D2(self, bc):
         """Return second order differentiation matrix
 
-        Paramters
-        ---------
-        bc : int
-            Boundary condition
+        Parameters
+        ----------
+        bc : dict
+            Boundary conditions in the form {'left': bc_left, 'right': bc_right}
 
         Note
         ----
         The returned matrix is not divided by dx**2
         """
         D = sparse.diags([1, -2, 1], [-1, 0, 1], (self.N+1, self.N+1), 'lil')
-        if bc == 1: # Neumann condition is baked into stencil
-            raise NotImplementedError
 
-        elif bc == 3: # periodic (Note u[0] = u[-1])
-            raise NotImplementedError
+        # Neumann condition is baked into the stencil for both sides
+        if bc['left'] == 1:  # Neumann on the left
+            D[0, :2] = -2, 2
+        if bc['right'] == 1:  # Neumann on the right
+            D[-1, -2:] = 2, -2
+
+        # If periodic condition is applied on either side, ensure both sides use periodic
+        if bc['left'] == 3 and bc['right'] == 3:  # Periodic on both sides
+            D[0, -2] = 1
+        elif bc['left'] == 3 or bc['right'] == 3:
+            raise RuntimeError("Periodic boundary condition requires both sides to be periodic.")
 
         return D
+
 
     def apply_bcs(self, bc, u=None):
         """Apply boundary conditions to solution vector
 
         Parameters
         ----------
-        bc : int
-            Boundary condition in space
-            - 0 Dirichlet
-            - 1 Neumann
-            - 2 Open boundary
-            - 3 periodic
+        bc : dict
+            Boundary conditions on both sides in the form {'left': bc_left, 'right': bc_right}
         u : array, optional
-            The solution array to fix at boundaries
-            If not provided, use self.unp1
-
+            The solution array to fix at boundaries. If not provided, use self.unp1.
         """
         u = u if u is not None else self.unp1
-        if bc == 0: # Dirichlet condition
+
+        # Apply left boundary condition
+        if bc['left'] == 0:  # Dirichlet
             u[0] = 0
+        elif bc['left'] == 1:  # Neumann
+            pass  # Neumann is baked into D2 for this boundary
+        elif bc['left'] == 2:  # Open boundary
+            C = self.cfl
+            u[0] = 2 * (1 - C) * self.un[0] - ((1 - C) / (1 + C)) * self.unm1[0] + 2*C**2/(1+C)*self.un[1]
+        elif bc['left'] == 3:  # Periodic
+            u[-1] = u[0]  # Handle periodic left side
+        
+        # Apply right boundary condition
+        if bc['right'] == 0:  # Dirichlet
             u[-1] = 0
+        elif bc['right'] == 1:  # Neumann
+            pass  # Neumann is baked into D2 for this boundary
+        elif bc['right'] == 2:  # Open boundary
+            C = self.cfl
+            u[-1] = 2 * (1 - C) * self.un[-1] - ((1 - C) / (1 + C)) * self.unm1[-1] + 2*C**2/(1+C)*self.un[-2]
+        elif bc['right'] == 3:  # Periodic
+            u[-1] = u[0]  # Handle periodic right side
 
-        elif bc == 1: # Neumann condition
-            pass
-
-        elif bc == 2: # Open boundary
-            raise NotImplementedError
-
-        elif bc == 3:
-            raise NotImplementedError
-
-        else:
-            raise RuntimeError(f"Wrong bc = {bc}")
 
     @property
     def dt(self):
@@ -179,29 +189,29 @@ class Wave1D:
 
 def test_pulse_bcs():
     sol = Wave1D(100, cfl=1, L0=2, c0=1)
-    data = sol(100, bc=0, ic=0, save_step=100)
+    data = sol(100, bc={'left': 0, 'right': 0}, ic=0, save_step=100)
     assert np.linalg.norm(data[0]+data[100]) < 1e-12
-    data = sol(100, bc=0, ic=1, save_step=100)
+    data = sol(100, bc={'left': 0, 'right': 0}, ic=1, save_step=100)
     assert np.linalg.norm(data[0]+data[100]) < 1e-12
-    data = sol(100, bc=1, ic=0, save_step=100)
+    data = sol(100, bc={'left': 1, 'right': 1}, ic=0, save_step=100)
     assert np.linalg.norm(data[0]-data[100]) < 1e-12
-    data = sol(100, bc=1, ic=1, save_step=100)
+    data = sol(100, bc={'left': 1, 'right': 1}, ic=1, save_step=100)
     assert np.linalg.norm(data[0]-data[100]) < 1e-12
-    data = sol(100, bc=2, ic=0, save_step=100)
+    data = sol(100, bc={'left': 2, 'right': 2}, ic=0, save_step=100)
     assert np.linalg.norm(data[100]) < 1e-12
-    data = sol(100, bc=2, ic=1, save_step=100)
+    data = sol(100, bc={'left': 2, 'right': 2}, ic=1, save_step=100)
     assert np.linalg.norm(data[100]) < 1e-12
-    data = sol(100, bc=3, ic=0, save_step=100)
+    data = sol(100, bc={'left': 3, 'right': 3}, ic=0, save_step=100)
     assert np.linalg.norm(data[0]-data[100]) < 1e-12
-    data = sol(100, bc=3, ic=1, save_step=100)
+    data = sol(100, bc={'left': 3, 'right': 3}, ic=1, save_step=100)
     assert np.linalg.norm(data[0]-data[100]) < 1e-12
 
 
 
 if __name__ == '__main__':
-    #sol = Wave1D(100, cfl=1, L0=2, c0=1)
-    #data = sol(100, bc=3, save_step=1, ic=1)
-    #sol.animation(data)
+    # sol = Wave1D(100, cfl=1, L0=2, c0=1)
+    # data = sol(100, bc={'left': 1, 'right': 2}, save_step=1, ic=1)
+    # sol.animation(data)
     test_pulse_bcs()
     #data = sol(200, bc=2, ic=0, save_step=100)
 
